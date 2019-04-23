@@ -5,7 +5,7 @@ R implementation of the Links in Context approaoch.
 Hecking, T., & Hoppe, H. U. (2018, December). Links in Context: Detecting and Describing the Nested Structure of Communities in Node-Attributed Networks. In International Conference on Complex Networks and their Applications (pp. 195-206). Springer, Cham.
 
 **Example usage:**
-Lazega Lawyers dataset [[
+Lazega Lawyers dataset [[https://www.stats.ox.ac.uk/~snijders/siena/Lazega_lawyers_data.htm]]
 ```R
 source("attributed_link_communities.R")
 source("read_sienna.R")
