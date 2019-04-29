@@ -1,0 +1,206 @@
+---
+title: "Lazega Lawyers dataset"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r}
+source("attributed_link_communities.R")
+source("cluster_characteristics.R")
+source("read_sienna.R")
+```
+
+**Read data** 
+
+```{r}
+source("../attributed_link_communities.R")
+source("../read_sienna.R")
+atts <- readAttributesSienna("ELattr.dat")
+
+gFriend <- readGraphSienna("ELfriend.dat") %>% removeNoContextEdges(atts)
+gWork <- readGraphSienna("ELwork.dat") %>% removeNoContextEdges(atts)
+gAdvice <- readGraphSienna("ELadv.dat") %>% removeNoContextEdges(atts)
+```
+
+### Network characteristics
+```{r}
+data_frame(network="friend", num_edges=ecount(gFriend), density=2*ecount(gFriend) / (vcount(gFriend) * (vcount(gFriend) - 1)))
+```
+
+## Link clusters (NetFeat)
+```{r}
+linkDendFriends <- attributedLinkClustering(gFriend, atts, getLinkSimilarityNetFeat)
+  #attributedLinkClustering(gFriend, atts, getLinkSimilarityNetwork)
+linkDendWork <- attributedLinkClustering(gWork, atts, getLinkSimilarityNetFeat)
+linkDendAdvice <- attributedLinkClustering(gAdvice, atts, getLinkSimilarityNetFeat)
+```
+
+```{r}
+plot(linkDendFriends)
+```
+
+
+### Attributed partition density
+
+```{r}
+lcFriends <- cutLinkDendogram(linkDendFriends, gFriend, atts, 7) %>% mutate(link_type="friends")
+lcWork <- cutLinkDendogram(linkDendWork, gWork, atts, 7) %>% mutate(link_type="work")
+lcAdvice <- cutLinkDendogram(linkDendAdvice, gAdvice, atts, 7) %>% mutate(link_type="advice")
+
+bind_rows(lcFriends, lcWork, lcAdvice) %>% select(-link_clusters) %>% DT::datatable()
+```
+
+
+### Link dendograms
+```{r}
+require(dendextend)
+require(ggplot2)
+p1 <- as.dendrogram(linkDendFriends) %>% 
+  set("branches_k_color", k = 20) %>% 
+  as.ggdend %>% 
+  ggplot + 
+  ggtitle("Friendships")
+
+p2 <- as.dendrogram(linkDendWork) %>% 
+  set("branches_k_color", k = 20) %>% 
+  as.ggdend %>% 
+  ggplot + 
+  ggtitle("Work")
+
+p3 <- as.dendrogram(linkDendAdvice) %>% 
+  set("branches_k_color", k = 20) %>% 
+  as.ggdend %>% 
+  ggplot + 
+  ggtitle("Advice")
+
+Rmisc::multiplot(p1, p2, p3, cols=3)
+```
+
+
+## Node clusters
+*Retain only non-trivial clusters with at least 3 nodes*
+```{r}
+print("-- Friends--")
+ncFriends <- linkClustersToNodeClusters(gFriend, lcFriends$link_clusters[[which.max(lcFriends$apd)]])
+paste(length(ncFriends), "clusters") %>% print
+ncFriends <- ncFriends[sapply(ncFriends, length) > 3]
+paste(length(ncFriends), "non trivial clusters") %>% print
+
+print("-- Work --")
+ncWork <- linkClustersToNodeClusters(gWork, lcWork$link_clusters[[which.max(lcWork$apd)]])
+paste(length(ncWork), "clusters") %>% print
+ncWork <- ncWork[sapply(ncWork, length) > 3]
+paste(length(ncWork), "non trivial clusters") %>% print
+
+print("-- Advice --")
+ncAdvice <- linkClustersToNodeClusters(gAdvice, lcAdvice$link_clusters[[which.max(lcAdvice$apd)]])
+paste(length(ncAdvice), "clusters") %>% print
+ncAdvice <- ncAdvice[sapply(ncAdvice, length) > 3]
+paste(length(ncAdvice), "non trivial clusters") %>% print
+
+```
+
+
+### Inductive cluster rules
+```{r}
+clInfoFriends <- characteriseClusters(ncFriends, atts, 0.9) %>% mutate(link_type="friends")
+clInfoWork <- characteriseClusters(ncWork, atts, 0.9) %>% mutate(link_type="work")
+clInfoAdvice <- characteriseClusters(ncAdvice, atts, 0.9) %>% mutate(link_type="advice")
+
+bind_rows(clInfoFriends, clInfoWork, clInfoAdvice) %>% DT::datatable()
+```
+
+### Node membership matrix
+```{r}
+mmFriends <- crossing(node=1:vcount(gFriend), cluster=1:length(ncFriends)) %>% # node cluster pairings
+  rowwise %>%
+  do({
+    bind_cols(., isMember=ifelse(.$node %in% ncFriends[[.$cluster]], "yes", "no"))
+  }) %>%
+  ggplot(aes(x=cluster, y=node, fill=isMember)) + geom_raster() + 
+  scale_fill_manual(values = c("white", "green")) + ggtitle("Friendships")
+
+mmWork <- crossing(node=1:vcount(gWork), cluster=1:length(ncWork)) %>% # node cluster pairings
+  rowwise %>%
+  do({
+    bind_cols(., isMember=ifelse(.$node %in% ncWork[[.$cluster]], "yes", "no"))
+  }) %>%
+  ggplot(aes(x=cluster, y=node, fill=isMember)) + geom_raster() + 
+  scale_fill_manual(values = c("white", "green")) + ggtitle("Work")
+
+mmAdvice <- crossing(node=1:vcount(gAdvice), cluster=1:length(ncAdvice)) %>% # node cluster pairings
+  rowwise %>%
+  do({
+    bind_cols(., isMember=ifelse(.$node %in% ncAdvice[[.$cluster]], "yes", "no"))
+  }) %>%
+  ggplot(aes(x=cluster, y=node, fill=isMember)) + geom_raster() + 
+  scale_fill_manual(values = c("white", "green")) + ggtitle("Advice")
+
+Rmisc::multiplot(mmFriends, mmWork, mmAdvice, cols=3)
+```
+
+
+### Cluster overlaps and cluster hierachies
+```{r}
+clOverlapsFriends <- clusterOverlapTab(ncFriends) %>%
+  graph_from_data_frame(vertices = clInfoFriends) %>%
+  simplify(remove.multiple=FALSE)
+
+clOverlapsWork <- clusterOverlapTab(ncWork) %>%
+  graph_from_data_frame(vertices = clInfoWork) %>%
+  simplify(remove.multiple=FALSE)
+
+clOverlapsAdvice <- clusterOverlapTab(ncAdvice) %>%
+  graph_from_data_frame(vertices = clInfoAdvice) %>%
+  simplify(remove.multiple=FALSE)
+
+clOverlapsFriends %>% delete.edges(which(E(.)$inclusion < 0.75)) %T>%
+  write_graph("cluster_overlaps_friends.gml", "gml") %>%
+  plot(vertex.size=V(.)$num_members, vertex.label=V(.)$rule, edge.width=E(.)$inclusion, edge.arrow.size=E(.)$inclusion)
+```
+
+### Cluster stats
+```{r}
+bind_rows(
+  clusteringStats(gFriend, atts, ncFriends),
+  clusteringStats(gWork, atts, ncWork),
+  clusteringStats(gAdvice, atts, ncAdvice)
+)
+
+```
+
+
+## Comparison with other methods
+
+### CESNA
+```{r}
+cesnaClusters <- readLines("lazega_lawyers_cesna_clusters.cmtyvv.txt") %>% 
+  strsplit("\t")
+
+clInfoFriendsChesna <- characteriseClusters(cesnaClusters, atts, 1)
+
+clInfoFriendsChesna
+
+```
+
+```{r}
+clusterOverlapTab(cesnaClusters) %>%
+  graph_from_data_frame(vertices = clInfoFriendsChesna) %>%
+  simplify(remove.multiple=FALSE )%>% 
+  delete.edges(which(E(.)$inclusion < 0.75)) %T>% 
+  write_graph("cesna_friends.gml", "gml") %>%
+  tkplot(vertex.size=V(.)$num_members, vertex.label=V(.)$rule, edge.width=E(.)$inclusion, edge.arrow.size=E(.)$inclusion)
+
+```
+
+
+# Comparison table friend
+```{r}
+crossing(method="LC", node=1:vcount(gFriend), cluster=1:length(ncFriends)) %>% # node cluster pairings
+  rowwise %>%
+  do({
+    bind_cols(., isMember=ifelse(.$node %in% ncFriends[[.$cluster]], 1, 0))
+  })
+```
+
