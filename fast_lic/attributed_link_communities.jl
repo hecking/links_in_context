@@ -126,7 +126,7 @@ function cutLinkDendogram(dendogram, g, features)
   by(DataFrame(cut = cuts), :cut, :cut => function(cp)
     linkClusters = getCut(dendogram, cp[1])
     (num_clusters = length(linkClusters),
-     clusters = linkClusters,
+     clusters = Tuple(linkClusters),
      pd = partitionDensity(g, linkClusters),
      apd = attributedPartitionDensity(g, linkClusters, features)
     )
@@ -135,7 +135,7 @@ end
 
 function linkClustersToNodeClusters(g, linkClusters)
 
-  map(lc -> induced_subgraph(g, lc)[2], linkClusters)
+  map(lc -> induced_subgraph(g, collect(edges(g, lc)))[2], linkClusters)
 end
 
 function attributedLinkClustering(g, features, simFun, atts...)
